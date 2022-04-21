@@ -1,91 +1,87 @@
-const { calculateFee, GasPrice } = require("@cosmjs/stargate");
+#!/usr/bin/env -S yarn node
+
+/* eslint-disable @typescript-eslint/naming-convention */
+const { SigningCosmWasmClient } = require("@cosmjs/cosmwasm-stargate");
 const { DirectSecp256k1HdWallet } = require("@cosmjs/proto-signing");
-const { SigningCosmWasmClient, CosmWasmClient } = require("@cosmjs/cosmwasm-stargate");
-const _ = require("fs");
+const { calculateFee, GasPrice } = require("@cosmjs/stargate");
+const fs = require("fs");
 
-const rpcEndpoint = "https://rpc.cliffnet.cosmwasm.com:443";
-
-// Example user from scripts/wasmd/README.md
-const sender = {
-    mnemonic: "rare race capable trend seven pilot silent couple battle zone camera clarify laundry fix ship citizen good crater ribbon cloud journey paddle bulk much",
-    address: "wasm1mgl5svtz8sy3s6aavx9589txu789djd0ewsqdl",
+const endpoint = "http://localhost:26659";
+const alice = {
+    mnemonic: "enlist hip relief stomach skate base shallow young switch frequent cry park",
+    address0: "wasm14qemq0vw6y3gc3u3e0aty2e764u4gs5lndxgyk",
+    address1: "wasm1hhg2rlu9jscacku2wwckws7932qqqu8xm5ca8y",
+    address2: "wasm1xv9tklw7d82sezh9haa573wufgy59vmwnxhnsl",
+    address3: "wasm17yg9mssjenmc3jkqth6ulcwj9cxujrxxg9nmzk",
+    address4: "wasm1f7j7ryulwjfe9ljplvhtcaxa6wqgula3nh873j",
 };
 
-const recipient = {
-    mnemonic: "target below announce scorpion six broccoli viable tail dance leave cradle young rescue brick merry mean duty because clog hat shop hub that enter",
-    address: "wasm1km7eq7csp9my73994c5c8m5hec4wkl9mnsyf0q",
-};
-
-const arbiter = {
-    mnemonic: "oblige apple beef tomato husband bacon nothing monster tell phone able grunt purchase manage exotic scrap fish plunge zone rose device dove bid bar",
-    address: "wasm12z2lfyv4297tzs0ck3taswfesx86x78rypm30l",
-};
+const inits = [
+    {
+        label: "From deploy_hackatom.js (0)",
+        msg: {
+            beneficiary: alice.address0,
+            verifier: alice.address0,
+        },
+        admin: undefined,
+    },
+    {
+        label: "From deploy_hackatom.js (1)",
+        msg: {
+            beneficiary: alice.address1,
+            verifier: alice.address1,
+        },
+        admin: undefined,
+    },
+    {
+        label: "From deploy_hackatom.js (2)",
+        msg: {
+            beneficiary: alice.address2,
+            verifier: alice.address2,
+        },
+        admin: alice.address1,
+    },
+];
 
 async function main() {
-    const escrowWasmPath =  "./cw_escrow.wasm";
-    const gasPrice = GasPrice.fromString("0.05upebble");
+    const gasPrice = GasPrice.fromString("0.025ucosm");
+    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(alice.mnemonic, { prefix: "wasm" });
+    const client = await SigningCosmWasmClient.connectWithSigner(endpoint, wallet);
 
-    // Upload contract
-    const sender_wallet = await DirectSecp256k1HdWallet.fromMnemonic(sender.mnemonic, { prefix: "wasm" });
-    const sender_client = await SigningCosmWasmClient.connectWithSigner(rpcEndpoint, sender_wallet);
-    const wasm = _.readFileSync(escrowWasmPath);
+    const wasm = fs.readFileSync(__dirname + "/contracts/hackatom.wasm");
     const uploadFee = calculateFee(1_500_000, gasPrice);
-    const uploadReceipt = await sender_client.upload(sender.address, wasm, uploadFee, "Upload hackatom contract");
-    console.log("Upload succeeded. Receipt:", uploadReceipt);
+    const uploadReceipt = await client.upload(
+        alice.address0,
+        wasm,
+        uploadFee,
+        "Upload hackatom contract",
+    );
+    console.info(`Upload succeeded. Receipt: ${JSON.stringify(uploadReceipt)}`);
 
-    // Instantiate
     const instantiateFee = calculateFee(500_000, gasPrice);
-	const msg = {} ;
-    const { contractAddress } = await sender_client.instantiate(
-        sender.address,
-        uploadReceipt.codeId,
-        msg,
-        "My instance",
-        instantiateFee,
-        { memo: `Create a hackatom instance` },
-    );
-    console.info(`Contract instantiated at: `, contractAddress);
-
-    // const contractAddress = "wasm13723e7gkukqxhe0kjwq0h0t4r743efa0xnelqmpmqx0gvle56qgq2a7s7p";
-    // Create escrow contract
-    const escrow_id = "random";
-    const executeFee = calculateFee(300_000, gasPrice);
-    const create_result = await sender_client.execute(
-        sender.address, 
-        contractAddress,  
-        {
-            create: {
-                arbiter: arbiter.address, 
-                recipient: recipient.address, 
-                id: escrow_id,
-            }
-        }, 
-        executeFee,
-        "",
-        [{denom: "upebble", amount: "10000"}]
-    );
-
-    console.info("escrow create execution result: ", create_result);
-
-    // Approve
-    const arbiter_wallet = await DirectSecp256k1HdWallet.fromMnemonic(arbiter.mnemonic, { prefix: "wasm" });
-    const arbiter_client = await SigningCosmWasmClient.connectWithSigner(rpcEndpoint, arbiter_wallet);
-    const approve_result = await arbiter_client.execute(
-        arbiter.address, 
-        contractAddress,  
-        {
-            approve: {
-                id: escrow_id,
-            }
-        }, 
-        executeFee,
-    );
-    console.info("escrow approve result: ", approve_result);
-
-	// query
-	const client = await CosmWasmClient.connect(rpcEndpoint);
-	const query_result = await client.queryContractSmart(contractAddress, {details:{id: "foo1"}});
-	console.info("query result", query_result);
+    for (const { label, msg, admin } of inits) {
+        const { contractAddress } = await client.instantiate(
+            alice.address0,
+            uploadReceipt.codeId,
+            msg,
+            label,
+            instantiateFee,
+            {
+                memo: `Create a hackatom instance in deploy_hackatom.js`,
+                admin: admin,
+            },
+        );
+        console.info(`Contract instantiated at ${contractAddress}`);
+    }
 }
 
-main();
+main().then(
+    () => {
+        console.info("All done, let the coins flow.");
+        process.exit(0);
+    },
+    (error) => {
+        console.error(error);
+        process.exit(1);
+    },
+);
